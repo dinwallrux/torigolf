@@ -6,7 +6,7 @@ jQuery( function( $ ) {
 		return false;
 	}
 
-	var locale_json = wc_address_i18n_params.locale.replace( /&quot;/g, '"' ), locale = $.parseJSON( locale_json );
+	var locale_json = wc_address_i18n_params.locale.replace( /&quot;/g, '"' ), locale = JSON.parse( locale_json );
 
 	function field_is_required( field, is_required ) {
 		if ( is_required ) {
@@ -22,7 +22,7 @@ jQuery( function( $ ) {
 			}
 		} else {
 			field.find( 'label .required' ).remove();
-			field.removeClass( 'validate-required' );
+			field.removeClass( 'validate-required woocommerce-invalid woocommerce-invalid-required-field' );
 
 			if ( field.find( 'label .optional' ).length === 0 ) {
 				field.find( 'label' ).append( '&nbsp;<span class="optional">(' + wc_address_i18n_params.i18n_optional_text + ')</span>' );
@@ -51,7 +51,7 @@ jQuery( function( $ ) {
 				$statefield.attr( 'data-o_class', $statefield.attr( 'class' ) );
 			}
 
-			var locale_fields = $.parseJSON( wc_address_i18n_params.locale_fields );
+			var locale_fields = JSON.parse( wc_address_i18n_params.locale_fields );
 
 			$.each( locale_fields, function( key, value ) {
 
@@ -100,6 +100,12 @@ jQuery( function( $ ) {
 					} else {
 						field.show();
 					}
+				}
+
+				// Class changes.
+				if ( Array.isArray( fieldLocale.class ) ) {
+					field.removeClass( 'form-row-first form-row-last form-row-wide' );
+					field.addClass( fieldLocale.class.join( ' ' ) );
 				}
 			});
 

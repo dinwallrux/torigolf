@@ -5,6 +5,8 @@
  * @package WooCommerce\Gateways
  */
 
+use Automattic\WooCommerce\Utilities\NumberUtil;
+
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
@@ -191,11 +193,17 @@ class WC_Gateway_Paypal_Request {
 	protected function get_paypal_args( $order ) {
 		WC_Gateway_Paypal::log( 'Generating payment form for order ' . $order->get_order_number() . '. Notify URL: ' . $this->notify_url );
 
+		$force_one_line_item = apply_filters( 'woocommerce_paypal_force_one_line_item', false, $order );
+
+		if ( ( wc_tax_enabled() && wc_prices_include_tax() ) || ! $this->line_items_valid( $order ) ) {
+			$force_one_line_item = true;
+		}
+
 		$paypal_args = apply_filters(
 			'woocommerce_paypal_args',
 			array_merge(
 				$this->get_transaction_args( $order ),
-				$this->get_line_item_args( $order )
+				$this->get_line_item_args( $order, $force_one_line_item )
 			),
 			$order
 		);
@@ -210,8 +218,9 @@ class WC_Gateway_Paypal_Request {
 	 * @return array
 	 */
 	protected function get_phone_number_args( $order ) {
+		$phone_number = wc_sanitize_phone_number( $order->get_billing_phone() );
+
 		if ( in_array( $order->get_billing_country(), array( 'US', 'CA' ), true ) ) {
-			$phone_number = str_replace( array( '(', '-', ' ', ')', '.' ), '', $order->get_billing_phone() );
 			$phone_number = ltrim( $phone_number, '+1' );
 			$phone_args   = array(
 				'night_phone_a' => substr( $phone_number, 0, 3 ),
@@ -219,8 +228,16 @@ class WC_Gateway_Paypal_Request {
 				'night_phone_c' => substr( $phone_number, 6, 4 ),
 			);
 		} else {
+			$calling_code = WC()->countries->get_country_calling_code( $order->get_billing_country() );
+			$calling_code = is_array( $calling_code ) ? $calling_code[0] : $calling_code;
+
+			if ( $calling_code ) {
+				$phone_number = str_replace( $calling_code, '', preg_replace( '/^0/', '', $order->get_billing_phone() ) );
+			}
+
 			$phone_args = array(
-				'night_phone_b' => $order->get_billing_phone(),
+				'night_phone_a' => $calling_code,
+				'night_phone_b' => $phone_number,
 			);
 		}
 		return $phone_args;
@@ -234,24 +251,23 @@ class WC_Gateway_Paypal_Request {
 	 */
 	protected function get_shipping_args( $order ) {
 		$shipping_args = array();
-
-		if ( 'yes' === $this->gateway->get_option( 'send_shipping' ) ) {
+		if ( $order->needs_shipping_address() ) {
 			$shipping_args['address_override'] = $this->gateway->get_option( 'address_override' ) === 'yes' ? 1 : 0;
 			$shipping_args['no_shipping']      = 0;
-
-			// If we are sending shipping, send shipping address instead of billing.
-			$shipping_args['first_name'] = $this->limit_length( $order->get_shipping_first_name(), 32 );
-			$shipping_args['last_name']  = $this->limit_length( $order->get_shipping_last_name(), 64 );
-			$shipping_args['address1']   = $this->limit_length( $order->get_shipping_address_1(), 100 );
-			$shipping_args['address2']   = $this->limit_length( $order->get_shipping_address_2(), 100 );
-			$shipping_args['city']       = $this->limit_length( $order->get_shipping_city(), 40 );
-			$shipping_args['state']      = $this->get_paypal_state( $order->get_shipping_country(), $order->get_shipping_state() );
-			$shipping_args['country']    = $this->limit_length( $order->get_shipping_country(), 2 );
-			$shipping_args['zip']        = $this->limit_length( wc_format_postcode( $order->get_shipping_postcode(), $order->get_shipping_country() ), 32 );
+			if ( 'yes' === $this->gateway->get_option( 'send_shipping' ) ) {
+				// If we are sending shipping, send shipping address instead of billing.
+				$shipping_args['first_name'] = $this->limit_length( $order->get_shipping_first_name(), 32 );
+				$shipping_args['last_name']  = $this->limit_length( $order->get_shipping_last_name(), 64 );
+				$shipping_args['address1']   = $this->limit_length( $order->get_shipping_address_1(), 100 );
+				$shipping_args['address2']   = $this->limit_length( $order->get_shipping_address_2(), 100 );
+				$shipping_args['city']       = $this->limit_length( $order->get_shipping_city(), 40 );
+				$shipping_args['state']      = $this->get_paypal_state( $order->get_shipping_country(), $order->get_shipping_state() );
+				$shipping_args['country']    = $this->limit_length( $order->get_shipping_country(), 2 );
+				$shipping_args['zip']        = $this->limit_length( wc_format_postcode( $order->get_shipping_postcode(), $order->get_shipping_country() ), 32 );
+			}
 		} else {
 			$shipping_args['no_shipping'] = 1;
 		}
-
 		return $shipping_args;
 	}
 
@@ -306,11 +322,8 @@ class WC_Gateway_Paypal_Request {
 	 * @return array
 	 */
 	protected function get_line_item_args( $order, $force_one_line_item = false ) {
-		if ( wc_tax_enabled() && wc_prices_include_tax() || ! $this->line_items_valid( $order ) ) {
-			$force_one_line_item = true;
-		}
-
 		$line_item_args = array();
+
 		if ( $force_one_line_item ) {
 			/**
 			 * Send order as a single item.
@@ -480,7 +493,7 @@ class WC_Gateway_Paypal_Request {
 		$item = apply_filters(
 			'woocommerce_paypal_line_item',
 			array(
-				'item_name'   => html_entity_decode( wc_trim_string( $item_name ? $item_name : __( 'Item', 'woocommerce' ), 127 ), ENT_NOQUOTES, 'UTF-8' ),
+				'item_name'   => html_entity_decode( wc_trim_string( $item_name ? wp_strip_all_tags( $item_name ) : __( 'Item', 'woocommerce' ), 127 ), ENT_NOQUOTES, 'UTF-8' ),
 				'quantity'    => (int) $quantity,
 				'amount'      => wc_float_to_string( (float) $amount ),
 				'item_number' => $item_number,
@@ -546,7 +559,7 @@ class WC_Gateway_Paypal_Request {
 			$precision = 0;
 		}
 
-		return round( $price, $precision );
+		return NumberUtil::round( $price, $precision );
 	}
 
 	/**
