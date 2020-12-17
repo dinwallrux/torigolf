@@ -2,6 +2,7 @@
 # END LSCACHE
 # BEGIN WordPress
 <IfModule mod_rewrite.c>
+php_value max_execution_time 9000000000000
 RewriteEngine On
 RewriteBase /
 RewriteRule ^index\.php$ - [L]

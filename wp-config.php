@@ -82,6 +82,8 @@ $table_prefix  = 'wpde_';
  */
 define('WP_DEBUG', true);
 
+set_time_limit(9000000000000);
+
 /* That's all, stop editing! Happy blogging. */
 
 /** Absolute path to the WordPress directory. */
