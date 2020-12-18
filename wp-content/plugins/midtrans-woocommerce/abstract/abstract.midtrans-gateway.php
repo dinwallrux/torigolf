@@ -21,6 +21,7 @@ abstract class WC_Gateway_Midtrans_Abstract extends WC_Payment_Gateway {
     $this->supports = array(
       'products',
       'refunds'
+    );
     // Get Settings
     $this->title              = $this->get_option( 'title' );
     $this->description        = $this->get_option( 'description' );
